@@ -63,6 +63,9 @@
     <div class="actions">
       <button id="save">Save to history</button>
       <button id="download" class="secondary">Download PNG</button>
+      <button id="share" class="secondary">Share</button>
+      <button id="wa" class="secondary">WhatsApp</button>
+      <button id="mail" class="secondary">Email</button>
     </div>
   </section>
 
@@ -168,7 +171,21 @@ $("file").onchange = async e => {
   } catch (err) { alert("Invalid file."); }
   e.target.value = "";
 };
-["text","ecl","size","fg","bg"].forEach(id => $(id).addEventListener("input", update));
+async function pngBlob() {
+  const url = render(current());
+  return url ? await (await fetch(url)).blob() : null;
+}
+$("share").onclick = async () => {
+  const blob = await pngBlob(); if (!blob) return;
+  const file = new File([blob], "qr.png", { type: "image/png" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: "QR code" }); } catch (e) {}
+  } else {
+    alert("Image sharing isn't supported in this browser. Use Download PNG and attach the file.");
+  }
+};
+$("wa").onclick = () => { const t = current().text; if (t) window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank"); };
+$("mail").onclick = () => { const t = current().text; if (t) location.href = "mailto:?subject=" + encodeURIComponent("QR code") + "&body=" + encodeURIComponent(t); };["text","ecl","size","fg","bg"].forEach(id => $(id).addEventListener("input", update));
 
 drawHistory();
 update();
