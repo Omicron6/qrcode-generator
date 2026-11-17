@@ -114,11 +114,13 @@
     <section class="card" style="grid-column:1/-1">
       <h2>History</h2>
       <div class="tools">
+        <button id="folder">Choose save folder</button>
         <button id="export">Export</button>
         <button id="import">Import</button>
         <button id="clear" class="danger">Clear all</button>
         <input id="file" type="file" accept="application/json" hidden>
       </div>
+      <div id="folderNote" class="date" style="font-size:12px;color:var(--muted);margin:0 0 8px"></div>
       <ul id="history"></ul>
     </section>
   </div>
@@ -191,11 +193,38 @@ function drawHistory() {
   });
 }
 
-$("save").onclick = () => {
+// ---- Save-to-folder (File System Access API: Chrome/Edge on desktop & Android) ----
+const idb = () => new Promise((res, rej) => { const r = indexedDB.open("qr-store", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const kvGet = async k => { const d = await idb(); return new Promise(res => { const q = d.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => res(null); }); };
+const kvSet = async (k, v) => { const d = await idb(); return new Promise(res => { const tx = d.transaction("kv", "readwrite"); tx.objectStore("kv").put(v, k); tx.oncomplete = res; }); };
+let dirHandle = null;
+const canFolder = "showDirectoryPicker" in window;
+function folderNote() { $("folderNote").textContent = !canFolder ? "Folder saving needs Chrome or Edge. Use Download instead." : dirHandle ? "Every saved code is also written as a PNG to the folder: " + dirHandle.name : "No save folder chosen. Pick one and every saved code is also written there as a PNG."; }
+async function initFolder() { if (canFolder) { try { dirHandle = await kvGet("dir") || null; } catch (e) {} } folderNote(); }
+$("folder").onclick = async () => {
+  if (!canFolder) return toast("Use Chrome or Edge for folder saving");
+  try { dirHandle = await showDirectoryPicker({ mode: "readwrite", id: "qr-codes" }); await kvSet("dir", dirHandle); folderNote(); toast("Folder set: " + dirHandle.name); } catch (e) {}
+};
+async function writeToFolder(o) {
+  if (!dirHandle) return false;
+  try {
+    if ((await dirHandle.queryPermission({ mode: "readwrite" })) !== "granted" &&
+        (await dirHandle.requestPermission({ mode: "readwrite" })) !== "granted") return false;
+    const blob = await pngBlob(); if (!blob) return false;
+    const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
+    const slug = o.text.replace(/^https?:\/\//, "").replace(/[^a-z0-9]+/gi, "-").slice(0, 40).replace(/^-|-$/g, "");
+    const fh = await dirHandle.getFileHandle(`qr-${stamp}-${slug}.png`, { create: true });
+    const w = await fh.createWritable(); await w.write(blob); await w.close();
+    return true;
+  } catch (e) { return false; }
+}
+$("save").onclick = async () => {
   const o = current();
   if (!o.text) return;
   history.unshift({ ...o, created: Date.now() });
-  persist(); toast("Saved to history");
+  persist();
+  const ok = await writeToFolder(o);
+  toast(ok ? "Saved to history and folder" : dirHandle ? "Saved to history (folder write failed)" : "Saved to history");
 };
 $("download").onclick = () => {
   const url = render(current());
@@ -234,6 +263,7 @@ $("mail").onclick = () => { const t = current().text; if (t) location.href = "ma
 
 drawHistory();
 update();
+initFolder();
 
 function toast(m){const e=$("toast");e.textContent=m;e.classList.add("on");clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove("on"),2200);}
 </script>
